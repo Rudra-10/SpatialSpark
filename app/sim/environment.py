@@ -1,6 +1,9 @@
+import time
 from typing import Any, Optional, Sequence
 import pybullet as p
 import pybullet_data
+
+_LATENCY_WARN_S = 1.5  # log a warning if reasoning round-trip exceeds this
 
 
 class PhysicsEnvironment:
@@ -105,6 +108,33 @@ class PhysicsEnvironment:
             )
             synced_count += 1
         return synced_count
+
+    def step_with_reasoning(
+        self,
+        graph_service: Any,
+        reasoning_service: Any,
+        robot_pos: Sequence[float],
+        query: str,
+        sim_steps: int = 10,
+    ) -> dict[str, Any]:
+        """Step physics, sync to graph, retrieve spatial context, get LLM action.
+
+        Returns the action dict with an added 'latency_s' field.
+        Warns to stdout if reasoning round-trip exceeds _LATENCY_WARN_S.
+        """
+        self.step_simulation(sim_steps)
+        self.sync_to_graph(graph_service)
+        context = graph_service.get_spatial_context(robot_pos)
+
+        t0 = time.perf_counter()
+        action = reasoning_service.plan_action(query, context)
+        latency = time.perf_counter() - t0
+
+        if latency > _LATENCY_WARN_S:
+            print(f"[SpatialSpark] WARNING: reasoning latency {latency:.3f}s > {_LATENCY_WARN_S}s target")
+
+        action["latency_s"] = round(latency, 4)
+        return action
 
     def close(self) -> None:
         """Tear down physics client session."""
