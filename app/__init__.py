@@ -1,0 +1,2 @@
+"""SpatialSpark core package."""
+
